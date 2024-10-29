@@ -34,8 +34,24 @@ const getTaskIdFromUrl = (url: string | undefined): number | null => {
   return isNaN(id) ? null : id;
 };
 
+// Helper function to get the request body as a string (handles the 'data' and 'end' events)
+const getRequestBody = function (req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      resolve(body);
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+  });
+};
 
-const server = http.createServer(function (req: IncomingMessage, res: ServerResponse) {
+
+const server = http.createServer(async function (req: IncomingMessage, res: ServerResponse) {
   const { method, url } = req;
 
   // Handle different API endpoints
@@ -66,13 +82,9 @@ const server = http.createServer(function (req: IncomingMessage, res: ServerResp
     }
     // POST to create a new task
     else if (method === 'POST' && url === '/tasks') {
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk.toString();
-      });
+      try {
+        const body = await getRequestBody(req);
 
-
-      req.on('end', () => {
         const { title, description, completed } = JSON.parse(body);
         const newTask: Task = {
           id: taskIdCounter++,
@@ -86,7 +98,11 @@ const server = http.createServer(function (req: IncomingMessage, res: ServerResp
         res.statusCode = 201;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(newTask));
-      });
+      } catch (error) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ message: 'Invalid request body' }));
+      }
+
     }
     // PUT to update an existing task by ID
     else if (method === 'PUT' && isTaskUrl(url)) {
@@ -95,13 +111,9 @@ const server = http.createServer(function (req: IncomingMessage, res: ServerResp
         res.statusCode = 400;
         res.end(JSON.stringify({ message: 'Invalid Task ID' }));
       } else {
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk.toString();
-        });
+        try {
+          const body = await getRequestBody(req);
 
-
-        req.on('end', () => {
           const { title, description, completed } = JSON.parse(body);
           const taskIndex = tasks.findIndex((t) => t.id === taskId);
 
@@ -122,7 +134,12 @@ const server = http.createServer(function (req: IncomingMessage, res: ServerResp
             res.statusCode = 404;
             res.end(JSON.stringify({ message: 'Task not found' }));
           }
-        });
+
+        } catch (error) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ message: 'Invalid request body' }));
+        }
+
       }
     }
     // DELETE a task by ID
