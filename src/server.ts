@@ -1,8 +1,10 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import * as http from 'http';
 
+
 const hostname: string = '127.0.0.1';
 const port: number = 3000;
+
 
 // In-memory task store (just for demonstration purposes)
 let tasks: Task[] = [];
@@ -34,6 +36,7 @@ const getTaskIdFromUrl = (url: string | undefined): number | null => {
   return isNaN(id) ? null : id;
 };
 
+
 // Helper function to get the request body as a string (handles the 'data' and 'end' events)
 const getRequestBody = function (req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -51,32 +54,35 @@ const getRequestBody = function (req: IncomingMessage): Promise<string> {
 };
 
 
+// Helper function to send a response in the specified format
+const sendResponse = (res: ServerResponse, statusCode: number, success: boolean, payload: any, msg: string, errors: string[] = []) => {
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ success, payload, msg, errors }));
+};
+
+
 const server = http.createServer(async function (req: IncomingMessage, res: ServerResponse) {
   const { method, url } = req;
+
 
   // Handle different API endpoints
   if (url?.startsWith('/tasks')) {
     // GET all tasks
     if (method === 'GET' && url === '/tasks') {
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(tasks));
+      sendResponse(res, 200, true, tasks, 'Tasks retrieved successfully');
     }
     // GET a single task by ID
     else if (method === 'GET' && isTaskUrl(url)) {
       const taskId = getTaskIdFromUrl(url);
       if (taskId === null) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ message: 'Invalid Task ID' }));
+        sendResponse(res, 400, false, null, 'Invalid Task ID', ['Task ID is invalid']);
       } else {
         const task = tasks.find((t) => t.id === taskId);
         if (task) {
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify(task));
+          sendResponse(res, 200, true, task, 'Task retrieved successfully');
         } else {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ message: 'Task not found' }));
+          sendResponse(res, 404, false, null, 'Task not found', ['No task found with the given ID']);
         }
       }
     }
@@ -84,8 +90,22 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
     else if (method === 'POST' && url === '/tasks') {
       try {
         const body = await getRequestBody(req);
-
         const { title, description, completed } = JSON.parse(body);
+
+
+        // Validation
+        const errors: string[] = [];
+        if (!title || typeof title !== 'string') errors.push('Title is required and must be a string');
+        if (!description || typeof description !== 'string') errors.push('Description is required and must be a string');
+        if (typeof completed !== 'boolean') errors.push('Completed must be a boolean');
+
+
+        if (errors.length > 0) {
+          sendResponse(res, 400, false, null, 'Validation errors', errors);
+          return;
+        }
+
+
         const newTask: Task = {
           id: taskIdCounter++,
           title,
@@ -93,31 +113,36 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
           completed: completed ?? false,
         };
         tasks.push(newTask);
-
-
-        res.statusCode = 201;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(newTask));
+        sendResponse(res, 201, true, newTask, 'Task created successfully');
       } catch (error) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ message: 'Invalid request body' }));
+        sendResponse(res, 400, false, null, 'Invalid request body', ['Failed to parse JSON']);
       }
-
     }
     // PUT to update an existing task by ID
     else if (method === 'PUT' && isTaskUrl(url)) {
       const taskId = getTaskIdFromUrl(url);
       if (taskId === null) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ message: 'Invalid Task ID' }));
+        sendResponse(res, 400, false, null, 'Invalid Task ID', ['Task ID is invalid']);
       } else {
         try {
           const body = await getRequestBody(req);
-
           const { title, description, completed } = JSON.parse(body);
+
+
+          // Validation
+          const errors: string[] = [];
+          if (title && typeof title !== 'string') errors.push('Title must be a string');
+          if (description && typeof description !== 'string') errors.push('Description must be a string');
+          if (completed !== undefined && typeof completed !== 'boolean') errors.push('Completed must be a boolean');
+
+
+          if (errors.length > 0) {
+            sendResponse(res, 400, false, null, 'Validation errors', errors);
+            return;
+          }
+
+
           const taskIndex = tasks.findIndex((t) => t.id === taskId);
-
-
           if (taskIndex !== -1) {
             tasks[taskIndex] = {
               id: taskId,
@@ -125,66 +150,43 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
               description: description || tasks[taskIndex].description,
               completed: completed ?? tasks[taskIndex].completed,
             };
-
-
-            res.statusCode = 200;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(tasks[taskIndex]));
+            sendResponse(res, 200, true, tasks[taskIndex], 'Task updated successfully');
           } else {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ message: 'Task not found' }));
+            sendResponse(res, 404, false, null, 'Task not found', ['No task found with the given ID']);
           }
-
         } catch (error) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ message: 'Invalid request body' }));
+          sendResponse(res, 400, false, null, 'Invalid request body', ['Failed to parse JSON']);
         }
-
       }
     }
     // DELETE a task by ID
     else if (method === 'DELETE' && isTaskUrl(url)) {
       const taskId = getTaskIdFromUrl(url);
       if (taskId === null) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ message: 'Invalid Task ID' }));
+        sendResponse(res, 400, false, null, 'Invalid Task ID', ['Task ID is invalid']);
       } else {
         const taskIndex = tasks.findIndex((t) => t.id === taskId);
-
-
         if (taskIndex !== -1) {
           tasks.splice(taskIndex, 1);
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ message: 'Task deleted' }));
+          sendResponse(res, 200, true, null, 'Task deleted successfully');
         } else {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ message: 'Task not found' }));
+          sendResponse(res, 404, false, null, 'Task not found', ['No task found with the given ID']);
         }
       }
     }
     // If no matching route
     else {
-      res.statusCode = 404;
-      res.end(JSON.stringify({ message: 'Endpoint not found' }));
+      sendResponse(res, 404, false, null, 'Endpoint not found', ['The requested endpoint does not exist']);
     }
   } else {
-    res.statusCode = 404;
-    res.end('Not Found');
+    sendResponse(res, 404, false, null, 'Not Found', ['The requested resource was not found']);
   }
-
 });
+
 
 server.listen(port, hostname, function () {
   console.log(`Server running at http://${hostname}:${port}/`);
 });
 
 
-
 export default server;
-
-
-
-
-
-
