@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "title": "Test Task",
+    "description": "Task for testing",
+    "completed": false
+  },
+  {
+    "id": 2,
+    "title": "Task to Retrieve",
+    "description": "Task retrieval test",
+    "completed": false
+  },
+  {
+    "id": 3,
+    "title": "Updated Task",
+    "description": "After Update",
+    "completed": true
+  },
+  {
+    "id": 4,
+    "title": "Test Task",
+    "description": "Task for testing",
+    "completed": false
+  },
+  {
+    "id": 5,
+    "title": "Task to Retrieve",
+    "description": "Task retrieval test",
+    "completed": false
+  },
+  {
+    "id": 6,
+    "title": "Updated Task",
+    "description": "After Update",
+    "completed": true
+  }
+]

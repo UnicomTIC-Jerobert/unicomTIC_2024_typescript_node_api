@@ -1,15 +1,32 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import * as http from 'http';
-
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import dotenv from 'dotenv';
 
 const hostname: string = '127.0.0.1';
 const port: number = 3000;
 
 
-// In-memory task store (just for demonstration purposes)
-let tasks: Task[] = [];
-let taskIdCounter = 1; // Auto-increment task ID
+let envFile: string;
 
+if (process.env.NODE_ENV === 'test') {
+  envFile = '.env.test';
+} else if (process.env.NODE_ENV === 'development') {
+  envFile = '.env.development';
+} else {
+  envFile = '.env.production';
+}
+
+dotenv.config({ path: envFile });
+
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Loaded Env File:', envFile);
+
+
+const tasksFilePath = process.env.TASKS_FILE_PATH ? process.env.TASKS_FILE_PATH : '';
+const filePath = path.resolve(__dirname, '..', '__data__', tasksFilePath);
+console.log('File Path:', filePath);
 
 // Define a Task interface
 interface Task {
@@ -17,6 +34,26 @@ interface Task {
   title: string;
   description: string;
   completed: boolean;
+}
+
+
+// Helper function to read tasks from the file
+async function readTasksFromFile(): Promise<Task[]> {
+  try {
+    const data = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    // Return an empty array if file not found
+    const errorCode = (error as { code?: string }).code;
+    if (errorCode === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+
+// Helper function to write tasks to the file
+async function writeTasksToFile(tasks: Task[]): Promise<void> {
+  await fs.writeFile(filePath, JSON.stringify(tasks, null, 2));
 }
 
 
@@ -37,7 +74,7 @@ const getTaskIdFromUrl = (url: string | undefined): number | null => {
 };
 
 
-// Helper function to get the request body as a string (handles the 'data' and 'end' events)
+// Helper function to get the request body as a string
 const getRequestBody = function (req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -66,15 +103,18 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
   const { method, url } = req;
 
 
-  // Handle different API endpoints
   if (url?.startsWith('/tasks')) {
     // GET all tasks
     if (method === 'GET' && url === '/tasks') {
+      const tasks = await readTasksFromFile();
       sendResponse(res, 200, true, tasks, 'Tasks retrieved successfully');
     }
     // GET a single task by ID
     else if (method === 'GET' && isTaskUrl(url)) {
       const taskId = getTaskIdFromUrl(url);
+      const tasks = await readTasksFromFile();
+
+
       if (taskId === null) {
         sendResponse(res, 400, false, null, 'Invalid Task ID', ['Task ID is invalid']);
       } else {
@@ -93,7 +133,6 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
         const { title, description, completed } = JSON.parse(body);
 
 
-        // Validation
         const errors: string[] = [];
         if (!title || typeof title !== 'string') errors.push('Title is required and must be a string');
         if (!description || typeof description !== 'string') errors.push('Description is required and must be a string');
@@ -106,21 +145,27 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
         }
 
 
+        const tasks = await readTasksFromFile();
         const newTask: Task = {
-          id: taskIdCounter++,
+          id: tasks.length ? tasks[tasks.length - 1].id + 1 : 1,
           title,
           description,
           completed: completed ?? false,
         };
         tasks.push(newTask);
+        await writeTasksToFile(tasks);
         sendResponse(res, 201, true, newTask, 'Task created successfully');
       } catch (error) {
+        console.error('Error', error);
         sendResponse(res, 400, false, null, 'Invalid request body', ['Failed to parse JSON']);
       }
     }
     // PUT to update an existing task by ID
     else if (method === 'PUT' && isTaskUrl(url)) {
       const taskId = getTaskIdFromUrl(url);
+      const tasks = await readTasksFromFile();
+
+
       if (taskId === null) {
         sendResponse(res, 400, false, null, 'Invalid Task ID', ['Task ID is invalid']);
       } else {
@@ -129,7 +174,6 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
           const { title, description, completed } = JSON.parse(body);
 
 
-          // Validation
           const errors: string[] = [];
           if (title && typeof title !== 'string') errors.push('Title must be a string');
           if (description && typeof description !== 'string') errors.push('Description must be a string');
@@ -150,6 +194,7 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
               description: description || tasks[taskIndex].description,
               completed: completed ?? tasks[taskIndex].completed,
             };
+            await writeTasksToFile(tasks);
             sendResponse(res, 200, true, tasks[taskIndex], 'Task updated successfully');
           } else {
             sendResponse(res, 404, false, null, 'Task not found', ['No task found with the given ID']);
@@ -162,12 +207,16 @@ const server = http.createServer(async function (req: IncomingMessage, res: Serv
     // DELETE a task by ID
     else if (method === 'DELETE' && isTaskUrl(url)) {
       const taskId = getTaskIdFromUrl(url);
+      const tasks = await readTasksFromFile();
+
+
       if (taskId === null) {
         sendResponse(res, 400, false, null, 'Invalid Task ID', ['Task ID is invalid']);
       } else {
         const taskIndex = tasks.findIndex((t) => t.id === taskId);
         if (taskIndex !== -1) {
           tasks.splice(taskIndex, 1);
+          await writeTasksToFile(tasks);
           sendResponse(res, 200, true, null, 'Task deleted successfully');
         } else {
           sendResponse(res, 404, false, null, 'Task not found', ['No task found with the given ID']);
